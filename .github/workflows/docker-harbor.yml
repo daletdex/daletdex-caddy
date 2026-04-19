@@ -1,0 +1,39 @@
+name: docker-harbor
+
+on:
+  push:
+    tags: ["v*.*.*", "*.*.*"]
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "IMAGE_TAG=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "This workflow only publishes images for Git tags (vX.Y.Z)." >&2
+            exit 1
+          fi
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ secrets.HARBOR_HOST || secrets.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME || secrets.HARBOR_USER }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - name: Build & push
+        env:
+          REGISTRY: ${{ secrets.HARBOR_HOST || secrets.HARBOR_REGISTRY }}
+          PROJECT: ${{ secrets.HARBOR_PROJECT }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.IMAGE_TAG }}"
+          docker build --pull -f docker/Dockerfile -t "${REGISTRY}/${PROJECT}/daletdex-caddy:${TAG}" .
+          docker push "${REGISTRY}/${PROJECT}/daletdex-caddy:${TAG}"
