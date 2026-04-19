@@ -13,3 +13,7 @@ Los certificados y estado de ACME se guardan en el volumen montado en **`/data`*
 ## Despliegue
 
 Gestionado por **`daletdex-app`** (`stacks/stack-40-frontends.yml`): misma red `daletdex_pub`, puertos **80** y **443** en modo ingress. Antes: `bash scripts/stackctl.sh dirs` y `DOMAIN` + `CADDY_TAG` en `.env`.
+
+## CI / Harbor
+
+El workflow **docker-harbor** (tags `v*.*.*`) necesita en este repositorio los **mismos secretos** que el resto de imágenes DaletDEX (`HARBOR_HOST` o `HARBOR_REGISTRY`, `HARBOR_USERNAME` / `HARBOR_USER`, `HARBOR_PASSWORD`, `HARBOR_PROJECT`). Si el job falla con *Username and password required*, faltan esos secretos en **GitHub → Settings → Actions secrets** de **daletdex-caddy** (o secretos a nivel de organización enlazados al repo).
