@@ -26,8 +26,6 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ github.ref_type == 'tag' && github.ref || (inputs.image_tag != '' && format('refs/tags/{0}', inputs.image_tag) || github.ref) }}
 
       - name: Resolve Harbor settings
         id: harbor
@@ -75,7 +73,7 @@ jobs:
       - name: Build & push
         env:
           IMAGE_REPO: daletdex-caddy
-          DOCKERFILE: Dockerfile
+          DOCKERFILE: docker/Dockerfile
           CONTEXT: .
         run: |
           set -euo pipefail
