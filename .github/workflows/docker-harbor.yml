@@ -1,6 +1,7 @@
 # Canonical Harbor publish — secrets: HARBOR_HOST, HARBOR_USER, HARBOR_PASS, HARBOR_PROJECT
 # IMAGE_REPO must match repo name (e.g. daletdex-ltc-worker).
 # Harbor tag == git tag. Push to main does NOT publish; push semver tag vX.Y.Z does.
+# After push: Cosign keyless sign + verify by digest (GitHub OIDC).
 
 name: docker-harbor
 
@@ -14,6 +15,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write # Cosign keyless (GitHub OIDC → Fulcio)
 
 jobs:
   docker:
@@ -63,6 +65,7 @@ jobs:
           password: ${{ secrets.HARBOR_PASS }}
 
       - name: Build & push
+        id: image
         env:
           IMAGE_REPO: daletdex-caddy
           DOCKERFILE: docker/Dockerfile
@@ -70,6 +73,45 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.tag.outputs.IMAGE_TAG }}"
-          IMAGE="${{ steps.harbor.outputs.registry }}/${{ steps.harbor.outputs.project }}/${IMAGE_REPO}:${TAG}"
+          REGISTRY="${{ steps.harbor.outputs.registry }}"
+          PROJECT="${{ steps.harbor.outputs.project }}"
+          IMAGE="${REGISTRY}/${PROJECT}/${IMAGE_REPO}:${TAG}"
           docker build --pull -f "${DOCKERFILE}" -t "${IMAGE}" "${CONTEXT}"
           docker push "${IMAGE}"
+
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}" | cut -d@ -f2)"
+          if [[ -z "${DIGEST}" || "${DIGEST}" != sha256:* ]]; then
+            echo "Failed to resolve image digest after push" >&2
+            exit 1
+          fi
+          echo "image=${REGISTRY}/${PROJECT}/${IMAGE_REPO}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${IMAGE} @ ${DIGEST}"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.9.2
+        with:
+          # v2 uses classic sha256-*.sig tags (Harbor-friendly). Keyless OIDC unchanged.
+          cosign-release: v2.5.0
+
+      - name: Sign image by digest (keyless OIDC)
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign version
+          cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Verify signature
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign verify \
+            --certificate-identity-regexp \
+              '^https://github.com/daletdex/daletdex-caddy/\.github/workflows/docker-harbor\.yml@refs/(tags/v.+|heads/.+)$' \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${IMAGE}@${DIGEST}"
